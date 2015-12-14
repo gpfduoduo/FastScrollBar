@@ -8,3 +8,7 @@
 
 ## 效果图
 ![image](https://github.com/gpfduoduo/FastScrollBar/blob/master/fast_scroll_bar.gif "效果图")
+
+
+## 开源库 
+[StickyGridHeaders](https://github.com/TonicArtos/StickyGridHeaders)
