@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
+
+    <com.guo.duoduo.fastscrollbarapp.view.MyImageView
+        android:id="@+id/grid_item"
+        android:scaleType="fitXY"
+        android:layout_width="fill_parent"
+        android:layout_height="100dip"/>
+
+</RelativeLayout>
