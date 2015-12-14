@@ -21,7 +21,6 @@ import android.support.v7.widget.Toolbar;
 import android.util.Log;
 import android.widget.AbsListView;
 import android.widget.GridView;
-import android.widget.TextView;
 
 import com.guo.duoduo.fastscrollbarapp.adapter.ImageAdapter;
 import com.guo.duoduo.fastscrollbarapp.entity.GridItem;
@@ -36,7 +35,6 @@ public class MainActivity extends AppCompatActivity
     private ProgressDialog mProgressDialog;
     private ImageScanner mScanner;
     private GridView mGridView;
-    private TextView mDragView;
     private FastScrollLayout mFastScrollLayout;
     private List<GridItem> mGirdList = new ArrayList<>();
     private ImageAdapter imageAdapter;
