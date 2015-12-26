@@ -5,8 +5,14 @@
 
     <com.guo.duoduo.fastscrollbarapp.view.MyImageView
         android:id="@+id/grid_item"
-        android:scaleType="fitXY"
         android:layout_width="fill_parent"
-        android:layout_height="100dip"/>
+        android:layout_height="100dip"
+        android:scaleType="fitXY" />
 
+    <ImageView
+        android:id="@+id/img_video"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
+        android:background="@mipmap/video" />
 </RelativeLayout>

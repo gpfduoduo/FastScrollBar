@@ -6,6 +6,7 @@ public class GridItem
     private String path;
     private String time;
     private int section;
+    private boolean isVideo = false;
 
     public GridItem(String path, String time)
     {
@@ -44,4 +45,13 @@ public class GridItem
         this.section = section;
     }
 
+    public boolean isVideo()
+    {
+        return isVideo;
+    }
+
+    public void setVideo(boolean video)
+    {
+        isVideo = video;
+    }
 }

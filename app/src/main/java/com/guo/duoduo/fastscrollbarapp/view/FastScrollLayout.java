@@ -106,8 +106,8 @@ public class FastScrollLayout extends RelativeLayout
                 }
                 //相当于点击效果
                 long pressDuration = System.currentTimeMillis() - mPressStartTime;
-                if (distance(downX, downY, event.getX(), event.getY()) < MAX_CLICK_DISTANCE
-                    && pressDuration < MAX_CLICK_TIME)
+                if (distance(downX, downY, event.getX(),
+                    event.getY()) < MAX_CLICK_DISTANCE && pressDuration < MAX_CLICK_TIME)
                 {
                     if (onDragViewClick != null)
                         onDragViewClick.dragViewClick();

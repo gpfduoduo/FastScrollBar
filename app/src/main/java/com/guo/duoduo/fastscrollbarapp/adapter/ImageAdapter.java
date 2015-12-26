@@ -1,10 +1,7 @@
 package com.guo.duoduo.fastscrollbarapp.adapter;
 
 
-import java.util.List;
-
 import android.content.Context;
-import android.graphics.Bitmap;
 import android.graphics.Point;
 import android.view.View;
 import android.view.ViewGroup;
@@ -17,10 +14,12 @@ import com.guo.duoduo.customadapterlibrary.ScrollDirectionListener;
 import com.guo.duoduo.customadapterlibrary.ViewHolder;
 import com.guo.duoduo.fastscrollbarapp.R;
 import com.guo.duoduo.fastscrollbarapp.entity.GridItem;
-import com.guo.duoduo.fastscrollbarapp.utils.NativeImageLoader;
+import com.guo.duoduo.fastscrollbarapp.utils.ImageLoader;
 import com.guo.duoduo.fastscrollbarapp.view.MyImageView;
 import com.tonicartos.widget.stickygridheaders.StickyGridHeadersGridView;
 import com.tonicartos.widget.stickygridheaders.StickyGridHeadersSimpleAdapter;
+
+import java.util.List;
 
 
 /**
@@ -57,39 +56,17 @@ public class ImageAdapter extends CustomAdapter<GridItem>
     {
         MyImageView mImageView = (MyImageView) viewHolder.getImageView(R.id.grid_item);
         mImageView.setImageResource(R.mipmap.friends_sends_pictures_no);
-
-        mImageView.setOnMeasureListener(new MyImageView.OnMeasureListener()
-        {
-            @Override
-            public void onMeasureSize(int width, int height)
-            {
-                mPoint.set(width, height);
-            }
-        });
-
+        ImageView imgVideo = (ImageView) viewHolder.getImageView(R.id.img_video);
         String path = gridItem.getPath();
         mImageView.setTag(path);
 
+        if (gridItem.isVideo())
+            imgVideo.setVisibility(View.VISIBLE);
+        else
+            imgVideo.setVisibility(View.GONE);
         if (!mIsInit)
         {
-            Bitmap bitmap = NativeImageLoader.getInstance().loadNativeImage(path, mPoint,
-                new NativeImageLoader.NativeImageCallBack()
-                {
-
-                    @Override
-                    public void onImageLoader(Bitmap bitmap, String path)
-                    {
-                        ImageView mImageView = (ImageView) mStickyGridHeadersGridView
-                                .findViewWithTag(path);
-                        if (bitmap != null && mImageView != null)
-                        {
-                            mImageView.setImageBitmap(bitmap);
-                        }
-                    }
-                });
-
-            if (bitmap != null)
-                mImageView.setImageBitmap(bitmap);
+            ImageLoader.getInstance().loadImage(path, mImageView, false);
         }
     }
 
@@ -119,7 +96,8 @@ public class ImageAdapter extends CustomAdapter<GridItem>
         if (isSameRow(firstVisibleItem))
         {
             int newScrollY = getTopItemScrollY();
-            boolean isSignificantDelta = Math.abs(mLastScrollY - newScrollY) > mScrollThreshold;
+            boolean isSignificantDelta = Math
+                    .abs(mLastScrollY - newScrollY) > mScrollThreshold;
             if (isSignificantDelta)
             {
                 if (mLastScrollY > newScrollY)
@@ -167,26 +145,7 @@ public class ImageAdapter extends CustomAdapter<GridItem>
 
             String path = mList.get(realIndex).getPath();
             ImageView img = (ImageView) mStickyGridHeadersGridView.findViewWithTag(path);
-            Bitmap bitmap = NativeImageLoader.getInstance().loadNativeImage(path, mPoint,
-                new NativeImageLoader.NativeImageCallBack()
-                {
-
-                    @Override
-                    public void onImageLoader(Bitmap bitmap, String path)
-                    {
-                        ImageView mImageView = (ImageView) mStickyGridHeadersGridView
-                                .findViewWithTag(path);
-                        if (bitmap != null && mImageView != null)
-                        {
-                            mImageView.setImageBitmap(bitmap);
-                        }
-                    }
-                });
-
-            if (bitmap != null)
-                img.setImageBitmap(bitmap);
-            else
-                img.setImageResource(R.mipmap.friends_sends_pictures_no);
+            ImageLoader.getInstance().loadImage(path, img, false);
         }
     }
 

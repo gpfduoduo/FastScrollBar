@@ -3,11 +3,10 @@
   <component name="EclipseCodeFormatter">
     <option name="defaultSettings" value="true" />
     <option name="formatter" value="ECLIPSE" />
-    <option name="id" value="1439811978020" />
+    <option name="id" value="1451145430070" />
     <option name="name" value="default" />
     <option name="pathToConfigFileJava" value="E:/eclipse开发相关/代码format/iptvclient_android_codeFormatter.xml" />
     <option name="selectedJavaProfile" value="iptvclient.android" />
-    <option name="useOldEclipseJavaFormatter" value="true" />
   </component>
   <component name="EntryPointsManager">
     <entry_points version="2.0" />
@@ -51,9 +50,6 @@
   </component>
   <component name="ProjectType">
     <option name="id" value="Android" />
-  </component>
-  <component name="SvnConfiguration">
-    <configuration>C:\Users\lenovo\AppData\Roaming\Subversion</configuration>
   </component>
   <component name="masterDetails">
     <states>

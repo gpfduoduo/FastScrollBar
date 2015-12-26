@@ -52,8 +52,8 @@ public class FastScrollBar extends View
 
     private void init()
     {
-        bitFastScroll = BitmapFactory
-                .decodeResource(getResources(), R.mipmap.ic_launcher);
+        bitFastScroll = BitmapFactory.decodeResource(getResources(),
+            R.mipmap.ic_launcher);
         barHeight = bitFastScroll.getHeight();
         barWidth = bitFastScroll.getWidth();
         //Log.d(tag, " bar height =" + barHeight);
