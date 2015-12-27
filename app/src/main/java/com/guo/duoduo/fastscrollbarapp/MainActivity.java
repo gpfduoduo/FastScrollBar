@@ -12,15 +12,10 @@ import android.widget.GridView;
 import com.guo.duoduo.fastscrollbarapp.adapter.ImageAdapter;
 import com.guo.duoduo.fastscrollbarapp.entity.GridItem;
 import com.guo.duoduo.fastscrollbarapp.utils.ImageScanner;
-import com.guo.duoduo.fastscrollbarapp.utils.YMComparator;
 import com.guo.duoduo.fastscrollbarapp.view.FastScrollLayout;
 
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.ListIterator;
-import java.util.Map;
 
 
 public class MainActivity extends AppCompatActivity
@@ -33,9 +28,6 @@ public class MainActivity extends AppCompatActivity
     private List<GridItem> mGirdList = new ArrayList<>();
     private ImageAdapter imageAdapter;
     private boolean isFastScrolling = false;
-
-    private static int section = 1;
-    private Map<String, Integer> sectionMap = new HashMap<String, Integer>();
 
     @Override
     protected void onCreate(Bundle savedInstanceState)
@@ -63,22 +55,6 @@ public class MainActivity extends AppCompatActivity
                 mProgressDialog.dismiss();
 
                 mGirdList.addAll(list);
-                Collections.sort(mGirdList, new YMComparator());
-                for (ListIterator<GridItem> it = mGirdList.listIterator(); it.hasNext();)
-                {
-                    GridItem mGridItem = it.next();
-                    String ym = mGridItem.getTime();
-                    if (!sectionMap.containsKey(ym))
-                    {
-                        mGridItem.setSection(section);
-                        sectionMap.put(ym, section);
-                        section++;
-                    }
-                    else
-                    {
-                        mGridItem.setSection(sectionMap.get(ym));
-                    }
-                }
                 imageAdapter.notifyDataSetChanged();
             }
         });

@@ -16,8 +16,11 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.ListIterator;
 import java.util.Locale;
+import java.util.Map;
 import java.util.TimeZone;
 
 
@@ -26,7 +29,8 @@ public class ImageScanner
     private static final String tag = ImageScanner.class.getSimpleName();
     private Context mContext;
     private List<GridItem> mImgList = new ArrayList<>();
-    private List<GridItem> mVideoList = new ArrayList<>();
+    private static int section = 1;
+    private Map<String, Integer> sectionMap = new HashMap<String, Integer>();
 
     public ImageScanner(Context context)
     {
@@ -73,20 +77,9 @@ public class ImageScanner
                     mImgList.add(mGridItem);
                 }
                 cursor.close();
-                Collections.sort(mImgList, new YMComparator());
-                Log.d(tag, "get image end");
-                Message msg = mHandler.obtainMessage();
-                msg.obj = mImgList;
-                mHandler.sendMessage(msg);
-            }
-        }).start();
 
-        new Thread()
-        {
-            public void run()
-            {
                 Log.d(tag, "get video start");
-                Cursor cursor = mContext.getContentResolver().query(
+                cursor = mContext.getContentResolver().query(
                     MediaStore.Video.Media.EXTERNAL_CONTENT_URI, null, null, null, null);
 
                 if (cursor == null)
@@ -100,17 +93,33 @@ public class ImageScanner
 
                     GridItem mGridItem = new GridItem(path, parserTimeToYM(times));
                     mGridItem.setVideo(true);
-                    mVideoList.add(mGridItem);
+                    mImgList.add(mGridItem);
                 }
                 cursor.close();
-                Collections.sort(mVideoList, new YMComparator());
 
+                Collections.sort(mImgList, new YMComparator());
+
+                for (ListIterator<GridItem> it = mImgList.listIterator(); it.hasNext();)
+                {
+                    GridItem mGridItem = it.next();
+                    String ym = mGridItem.getTime();
+                    if (!sectionMap.containsKey(ym))
+                    {
+                        mGridItem.setSection(section);
+                        sectionMap.put(ym, section);
+                        section++;
+                    }
+                    else
+                    {
+                        mGridItem.setSection(sectionMap.get(ym));
+                    }
+                }
                 Log.d(tag, "get video end");
                 Message msg = mHandler.obtainMessage();
-                msg.obj = mVideoList;
+                msg.obj = mImgList;
                 mHandler.sendMessage(msg);
             }
-        }.start();
+        }).start();
     }
 
     private String parserTimeToYM(long time)
