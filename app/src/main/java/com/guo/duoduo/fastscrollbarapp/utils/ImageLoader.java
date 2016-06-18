@@ -1,40 +1,48 @@
 package com.guo.duoduo.fastscrollbarapp.utils;
 
-
-import android.content.Context;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
-import android.media.MediaMetadataRetriever;
-import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.Message;
-import android.support.v4.util.LruCache;
-import android.util.Log;
-import android.widget.ImageView;
-
-import java.io.File;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.lang.ref.WeakReference;
+import java.lang.reflect.Field;
 import java.util.LinkedList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.media.MediaMetadataRetriever;
+import android.media.ThumbnailUtils;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Message;
+import android.os.Process;
+import android.support.v4.util.LruCache;
+import android.text.TextUtils;
+import android.util.DisplayMetrics;
+import android.view.View;
+import android.view.ViewGroup.LayoutParams;
+import android.widget.ImageView;
+import android.widget.ProgressBar;
 
-public class ImageLoader
-{
-    private static ImageLoader mInstance;
+/**
+ * 本地图片加载类
+ */
+public class ImageLoader {
+    private static final String tag = ImageLoader.class.getSimpleName();
+
+    private static int threadCount = Runtime.getRuntime().availableProcessors() + 1;
 
     /**
-     * 图片缓存的核心对象
+     * 图片缓存的核心类
      */
     private LruCache<String, Bitmap> mLruCache;
     /**
      * 线程池
      */
     private ExecutorService mThreadPool;
-    private static final int DEAFULT_THREAD_COUNT = 1;
     /**
      * 队列的调度方式
      */
@@ -42,124 +50,51 @@ public class ImageLoader
     /**
      * 任务队列
      */
-    private LinkedList<Runnable> mTaskQueue;
+    private LinkedList<Runnable> mTasks;
     /**
-     * 后台轮询线程
+     * 轮询的线程
      */
     private Thread mPoolThread;
-    private Handler mPoolThreadHandler;
-    /**
-     * UI线程中的Handler
-     */
-    private Handler mUIHandler;
-
-    private Semaphore mSemaphorePoolThreadHandler = new Semaphore(0);
-    private Semaphore mSemaphoreThreadPool;
-
-    private boolean isDiskCacheEnable = true;
-
-    private static final String TAG = "ImageLoader";
-
-    public enum Type
-    {
-        FIFO, LIFO;
-    }
-
-    private ImageLoader(int threadCount, Type type)
-    {
-        init(threadCount, type);
-    }
+    private Handler mPoolThreadHander;
+    private Looper mLooper;
 
     /**
-     * 初始化
-     * 
-     * @param threadCount
-     * @param type
+     * 运行在UI线程的handler，用于给ImageView设置图片
      */
-    private void init(int threadCount, Type type)
-    {
-        initBackThread();
-
-        // 获取我们应用的最大可用内存
-        int maxMemory = (int) Runtime.getRuntime().maxMemory();
-        int cacheMemory = maxMemory / 8;
-        mLruCache = new LruCache<String, Bitmap>(cacheMemory)
-        {
-            @Override
-            protected int sizeOf(String key, Bitmap value)
-            {
-                return value.getRowBytes() * value.getHeight();
-            }
-
-        };
-
-        // 创建线程池
-        mThreadPool = Executors.newFixedThreadPool(threadCount);
-        mTaskQueue = new LinkedList<Runnable>();
-        mType = type;
-        mSemaphoreThreadPool = new Semaphore(threadCount);
-    }
+    private Handler mHandler;
 
     /**
-     * 初始化后台轮询线程
+     * 引入一个值为1的信号量，防止mPoolThreadHander未初始化完成
      */
-    private void initBackThread()
-    {
-        // 后台轮询线程
-        mPoolThread = new Thread()
-        {
-            @Override
-            public void run()
-            {
-                Looper.prepare();
-                mPoolThreadHandler = new Handler()
-                {
-                    @Override
-                    public void handleMessage(Message msg)
-                    {
-                        // 线程池去取出一个任务进行执行
-                        mThreadPool.execute(getTask());
-                        try
-                        {
-                            mSemaphoreThreadPool.acquire();
-                        }
-                        catch (InterruptedException e)
-                        {
-                        }
-                    }
-                };
-                // 释放一个信号量
-                mSemaphorePoolThreadHandler.release();
-                Looper.loop();
-            };
-        };
+    private volatile Semaphore mSemaphore = new Semaphore(0);
 
-        mPoolThread.start();
+    /**
+     * 引入一个值为1的信号量，由于线程池内部也有一个阻塞线程，防止加入任务的速度过快，使LIFO效果不明显
+     */
+    private volatile Semaphore mPoolSemaphore;
+
+    private static ImageLoader mInstance;
+
+    /**
+     * 队列的调度方式
+     */
+    public enum Type {
+        FIFO, LIFO
     }
 
-    public static ImageLoader getInstance()
-    {
-        if (mInstance == null)
-        {
-            synchronized (ImageLoader.class)
-            {
-                if (mInstance == null)
-                {
-                    mInstance = new ImageLoader(DEAFULT_THREAD_COUNT, Type.LIFO);
-                }
-            }
-        }
-        return mInstance;
+    private static final int GET_IMAGE = 0x110;
+    private static final int EXIT = 0x111;
+
+
+    public static ImageLoader getInstance() {
+        return getInstance(threadCount, Type.FIFO);
     }
 
-    public static ImageLoader getInstance(int threadCount, Type type)
-    {
-        if (mInstance == null)
-        {
-            synchronized (ImageLoader.class)
-            {
-                if (mInstance == null)
-                {
+
+    public static ImageLoader getInstance(int threadCount, Type type) {
+        if (mInstance == null) {
+            synchronized (ImageLoader.class) {
+                if (mInstance == null) {
                     mInstance = new ImageLoader(threadCount, type);
                 }
             }
@@ -167,330 +102,435 @@ public class ImageLoader
         return mInstance;
     }
 
-    /**
-     * 
-     * 根据path为imageview设置图片
-     * 
-     * @param path
-     * @param imageView
-     */
-    public void loadImage(final String path, final ImageView imageView,
-            final boolean isFromNet)
-    {
-        imageView.setTag(path);
-        if (mUIHandler == null)
-        {
-            mUIHandler = new Handler()
-            {
-                public void handleMessage(Message msg)
-                {
-                    // 获取得到图片，为imageview回调设置图片
-                    ImgBeanHolder holder = (ImgBeanHolder) msg.obj;
-                    Bitmap bm = holder.bitmap;
-                    ImageView imageview = holder.imageView;
-                    String path = holder.path;
-                    // 将path与getTag存储路径进行比较
-                    if (imageview.getTag().toString().equals(path))
-                    {
-                        imageview.setImageBitmap(bm);
-                    }
-                };
-            };
-        }
 
-        // 根据path在缓存中获取bitmap
-        Bitmap bm = getBitmapFromLruCache(path);
-
-        if (bm != null)
-        {
-            refreashBitmap(path, imageView, bm);
-        }
-        else
-        {
-            addTask(buildTask(path, imageView, isFromNet));
-        }
-
+    private ImageLoader(int threadCount, Type type) {
+        init(threadCount, type);
     }
 
-    /**
-     * 根据传入的参数，新建一个任务
-     * 
-     * @param path
-     * @param imageView
-     * @param isFromNet
-     * @return
-     */
-    private Runnable buildTask(final String path, final ImageView imageView,
-            final boolean isFromNet)
-    {
-        return new Runnable()
-        {
-            @Override
-            public void run()
-            {
-                Bitmap bm = null;
-                if (isFromNet)
-                {
-                    File file = getDiskCacheDir(imageView.getContext(), md5(path));
-                    if (file.exists()) // 如果在缓存文件中发现
-                    {
-                        Log.e(TAG, "find image :" + path + " in disk cache .");
-                        bm = loadImageFromLocal(file.getAbsolutePath(), imageView);
-                    }
-                    else
-                    {
-                        if (isDiskCacheEnable) // 检测是否开启硬盘缓存
-                        {
-                            boolean downloadState = DownloadImgUtils
-                                    .downloadImgByUrl(path, file);
-                            if (downloadState) // 如果下载成功
-                            {
-                                Log.e(TAG,
-                                    "download image :" + path
-                                        + " to disk cache . path is "
-                                        + file.getAbsolutePath());
-                                bm = loadImageFromLocal(file.getAbsolutePath(),
-                                    imageView);
-                            }
-                        }
-                        else
-                        // 直接从网络加载
-                        {
-                            Log.e(TAG, "load image :" + path + " to memory.");
-                            bm = DownloadImgUtils.downloadImgByUrl(path, imageView);
-                        }
-                    }
-                }
-                else
-                {
-                    bm = loadImageFromLocal(path, imageView);
-                }
-                // 3、把图片加入到缓存
-                addBitmapToLruCache(path, bm);
-                refreashBitmap(path, imageView, bm);
-                mSemaphoreThreadPool.release();
-            }
 
+    private void init(int threadCount, Type type) {
+        // loop thread
+        mPoolThread = new Thread("JT_ImageLoader") {
+            @Override public void run() {
+                Looper.prepare();
+                mLooper = Looper.myLooper();
+                //XLog.d(tag, "loop thread run");
+                mPoolThreadHander = new MyPoolThreadHandler(ImageLoader.this);
+                // 释放一个信号量
+                mSemaphore.release();
+                Looper.loop();
+            }
         };
+        mPoolThread.start();
+
+        //获取应用程序最大可用内存
+        if (mLruCache != null) {
+            mLruCache.evictAll();
+            mLruCache = null;
+        }
+
+        mLruCache = new LruCache<String, Bitmap>((int) Runtime.getRuntime().maxMemory() / 4) {
+            @Override protected int sizeOf(String key, Bitmap value) {
+                return value.getRowBytes() * value.getHeight();
+            }
+        };
+
+        ThreadFactory threadFactory = new ThreadFactory() {
+            private final AtomicInteger mCount = new AtomicInteger(1);
+
+
+            public Thread newThread(Runnable r) {
+                Thread thread = new Thread(r,
+                        "JT_ImageLoader_ThreadPool #" + mCount.getAndIncrement());
+                return thread;
+            }
+        };
+
+        mThreadPool = Executors.newFixedThreadPool(threadCount, threadFactory);
+        mPoolSemaphore = new Semaphore(threadCount);
+        mTasks = new LinkedList<Runnable>();
+        mType = type == null ? Type.LIFO : type;
     }
 
-    private Bitmap loadImageFromLocal(final String path, final ImageView imageView)
-    {
-        Bitmap bm;
-        // 加载图片
-        // 图片的压缩
-        // 1、获得图片需要显示的大小
-        ImageSizeUtil.ImageSize imageSize = ImageSizeUtil.getImageViewSize(imageView);
-        // 2、压缩图片
-        bm = decodeSampledBitmapFromPath(path, imageSize.width, imageSize.height);
-        return bm;
-    }
 
     /**
-     * 从任务队列取出一个方法
-     * 
-     * @return
+     * 重新设置缓存的大小
+     *
+     * @param size 单位字节
      */
-    private Runnable getTask()
-    {
-        if (mType == Type.FIFO)
-        {
-            return mTaskQueue.removeFirst();
+    public void resetCacheSize(int size) {
+        mLruCache.trimToSize(size);
+    }
+
+
+    public void clearCache() {
+        if (mLruCache != null) mLruCache.evictAll();
+    }
+
+
+    /**
+     * 加载图片
+     */
+    public void loadImage(final String path, final ImageView imageView) {
+        if (TextUtils.isEmpty(path)) return;
+        // set tag
+        imageView.setTag(path);
+        // UI线程
+        if (mHandler == null) mHandler = new MyHandler();
+
+        Bitmap bm = getBitmapFromLruCache(path);
+        if (bm != null) {
+            imageView.setImageBitmap(bm);
         }
-        else if (mType == Type.LIFO)
-        {
-            return mTaskQueue.removeLast();
+        else {
+            addTask(new Runnable() {
+                @Override public void run() {
+                    Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+                    try {
+                        ImageSize imageSize = getImageViewWidth(imageView);
+
+                        int reqWidth = imageSize.width;
+                        int reqHeight = imageSize.height;
+
+                        Bitmap bm = decodeSampledBitmapFromResource(path, reqWidth, reqHeight);
+
+                        //XLog.d(tag, "run task path =" + path);
+                        addBitmapToLruCache(path, bm);
+                        ImgBeanHolder holder = new ImgBeanHolder();
+                        holder.bitmap = bm; //getBitmapFromLruCache(path);
+                        holder.imageView = new WeakReference<ImageView>(imageView);
+                        holder.path = path;
+                        holder.isBigImg = false;
+                        Message message = Message.obtain();
+                        message.obj = holder;
+                        mHandler.sendMessage(message);
+                        mPoolSemaphore.release();
+                    } catch (OutOfMemoryError e) {
+                        mPoolSemaphore.release();
+                    } catch (IOException e) {
+                        mPoolSemaphore.release();
+                    }
+                }
+            });
+        }
+    }
+
+
+    /**
+     * 带有ProgressBar用来加载大图的时候调用
+     */
+    public void loadImage(final String path, final ProgressBar progressBar, final ImageView imageView) {
+        // set tag
+        imageView.setTag(path);
+        progressBar.setTag(path);
+        // UI线程
+        if (mHandler == null) mHandler = new MyHandler();
+
+        Bitmap bm = getBitmapFromLruCache(path);
+        if (bm != null) {
+            progressBar.setVisibility(View.GONE);
+            imageView.setImageBitmap(bm);
+        }
+        else {
+            addTask(new Runnable() {
+                @Override public void run() {
+                    try {
+                        ImageSize imageSize = getImageViewWidth(imageView);
+
+                        int reqWidth = imageSize.width;
+                        int reqHeight = imageSize.height;
+
+                        Bitmap bm = decodeSampledBitmapFromResource(path, reqWidth, reqHeight);
+
+                        addBitmapToLruCache(path, bm);
+                        ImgBeanHolder holder = new ImgBeanHolder();
+                        holder.bitmap = bm;//getBitmapFromLruCache(path);
+                        holder.imageView = new WeakReference<ImageView>(imageView);
+                        holder.path = path;
+                        holder.progressBar = new WeakReference<ProgressBar>(progressBar);
+                        holder.isBigImg = true;
+                        Message message = Message.obtain();
+                        message.obj = holder;
+                        mHandler.sendMessage(message);
+                        mPoolSemaphore.release();
+                    } catch (OutOfMemoryError e) {
+                        mPoolSemaphore.release();
+                    } catch (IOException e) {
+                        mPoolSemaphore.release();
+                    }
+                }
+            });
+        }
+    }
+
+
+    /**
+     * 添加一个任务
+     */
+    private synchronized void addTask(Runnable runnable) {
+        try {
+            // 请求信号量，防止mPoolThreadHander为null
+            if (mPoolThreadHander == null) mSemaphore.acquire();
+        } catch (InterruptedException e) {
+        }
+        mTasks.add(runnable);
+
+        mPoolThreadHander.sendEmptyMessage(GET_IMAGE);
+    }
+
+
+    /**
+     * 退出
+     */
+    public void quit() {
+        if (mPoolThreadHander != null) mPoolThreadHander.sendEmptyMessage(EXIT);
+    }
+
+
+    /**
+     * 取出一个任务
+     */
+    private synchronized Runnable getTask() {
+        if (mType == Type.FIFO) {
+            return mTasks.removeFirst();
+        }
+        else if (mType == Type.LIFO) {
+            return mTasks.removeLast();
         }
         return null;
     }
 
-    /**
-     * 利用签名辅助类，将字符串字节数组
-     * 
-     * @param str
-     * @return
-     */
-    public String md5(String str)
-    {
-        byte[] digest = null;
-        try
-        {
-            MessageDigest md = MessageDigest.getInstance("md5");
-            digest = md.digest(str.getBytes());
-            return bytes2hex02(digest);
-
-        }
-        catch (NoSuchAlgorithmException e)
-        {
-            e.printStackTrace();
-        }
-        return null;
-    }
 
     /**
-     * 方式二
-     * 
-     * @param bytes
-     * @return
+     * 从LruCache中获取一张图片，如果不存在就返回null。
      */
-    public String bytes2hex02(byte[] bytes)
-    {
-        StringBuilder sb = new StringBuilder();
-        String tmp = null;
-        for (byte b : bytes)
-        {
-            // 将每个字节与0xFF进行与运算，然后转化为10进制，然后借助于Integer再转化为16进制
-            tmp = Integer.toHexString(0xFF & b);
-            if (tmp.length() == 1) // 每个字节8为，转为16进制标志，2个16进制位
-            {
-                tmp = "0" + tmp;
-            }
-            sb.append(tmp);
-        }
-
-        return sb.toString();
-
-    }
-
-    private void refreashBitmap(final String path, final ImageView imageView, Bitmap bm)
-    {
-        Message message = Message.obtain();
-        ImgBeanHolder holder = new ImgBeanHolder();
-        holder.bitmap = bm;
-        holder.path = path;
-        holder.imageView = imageView;
-        message.obj = holder;
-        mUIHandler.sendMessage(message);
-    }
-
-    /**
-     * 将图片加入LruCache
-     * 
-     * @param path
-     * @param bm
-     */
-    protected void addBitmapToLruCache(String path, Bitmap bm)
-    {
-        if (getBitmapFromLruCache(path) == null)
-        {
-            if (bm != null)
-                mLruCache.put(path, bm);
-        }
-    }
-
-    /**
-     * 根据图片需要显示的宽和高对图片进行压缩
-     * 
-     * @param path
-     * @param width
-     * @param height
-     * @return
-     */
-    protected Bitmap decodeSampledBitmapFromPath(String path, int width, int height)
-    {
-        // 获得图片的宽和高，并不把图片加载到内存中
-        if (path.endsWith(".mp4"))
-        {
-            return getVideoThumbnail(path);
-        }
-        else
-        {
-            BitmapFactory.Options options = new BitmapFactory.Options();
-            options.inJustDecodeBounds = true;
-            BitmapFactory.decodeFile(path, options);
-
-            options.inSampleSize = ImageSizeUtil.caculateInSampleSize(options, width,
-                height);
-
-            // 使用获得到的InSampleSize再次解析图片
-            options.inJustDecodeBounds = false;
-            Bitmap bitmap = BitmapFactory.decodeFile(path, options);
-            return bitmap;
-        }
-    }
-
-    private synchronized void addTask(Runnable runnable)
-    {
-        mTaskQueue.add(runnable);
-        // if(mPoolThreadHandler==null)wait();
-        try
-        {
-            if (mPoolThreadHandler == null)
-                mSemaphorePoolThreadHandler.acquire();
-        }
-        catch (InterruptedException e)
-        {
-        }
-        mPoolThreadHandler.sendEmptyMessage(0x110);
-    }
-
-    /**
-     * 获得缓存图片的地址
-     * 
-     * @param context
-     * @param uniqueName
-     * @return
-     */
-    public File getDiskCacheDir(Context context, String uniqueName)
-    {
-        String cachePath;
-        if (Environment.MEDIA_MOUNTED.equals(Environment.getExternalStorageState()))
-        {
-            cachePath = context.getExternalCacheDir().getPath();
-        }
-        else
-        {
-            cachePath = context.getCacheDir().getPath();
-        }
-        return new File(cachePath + File.separator + uniqueName);
-    }
-
-    public Bitmap getVideoThumbnail(String filePath)
-    {
-        Bitmap bitmap = null;
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        try
-        {
-            retriever.setDataSource(filePath);
-            bitmap = retriever.getFrameAtTime();
-        }
-        catch (IllegalArgumentException e)
-        {
-            e.printStackTrace();
-        }
-        catch (RuntimeException e)
-        {
-            e.printStackTrace();
-        }
-        finally
-        {
-            try
-            {
-                retriever.release();
-            }
-            catch (RuntimeException e)
-            {
-                e.printStackTrace();
-            }
-        }
-        return bitmap;
-    }
-
-    /**
-     * 根据path在缓存中获取bitmap
-     * 
-     * @param key
-     * @return
-     */
-    private Bitmap getBitmapFromLruCache(String key)
-    {
+    private Bitmap getBitmapFromLruCache(String key) {
         return mLruCache.get(key);
     }
 
-    private class ImgBeanHolder
-    {
+
+    /**
+     * 往LruCache中添加一张图片
+     */
+    private void addBitmapToLruCache(String key, Bitmap bitmap) {
+        if (getBitmapFromLruCache(key) == null) {
+            if (bitmap != null) mLruCache.put(key, bitmap);
+        }
+    }
+
+
+    private Bitmap getVideoThumbNail(String filepath) {
+        MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+        Bitmap bitmap = null;
+        //XLog.d(tag, "get video thumbnail = " + filepath);
+        try {
+            mmr.setDataSource(filepath);
+            bitmap = mmr.getFrameAtTime();
+            bitmap = ThumbnailUtils.extractThumbnail(bitmap, 80, 80,
+                    ThumbnailUtils.OPTIONS_RECYCLE_INPUT);
+        } catch (IllegalArgumentException e) {
+            e.printStackTrace();
+        } catch (RuntimeException e) {
+            e.printStackTrace();
+        }
+
+        mmr.release();
+
+        return bitmap;
+    }
+
+
+    /**
+     * 计算inSampleSize，用于压缩图片
+     */
+    private int calculateInSampleSize(BitmapFactory.Options options, int reqWidth, int reqHeight) {
+        int width = options.outWidth;
+        int height = options.outHeight;
+
+        int inSampleSize = 1;
+        if (width > reqWidth || height > reqHeight) {
+            int widthRadio = Math.round(width * 1.0f / reqWidth);
+            int heightRadio = Math.round(height * 1.0f / reqHeight);
+            inSampleSize = Math.max(widthRadio, heightRadio);
+        }
+        return inSampleSize;
+    }
+
+
+    /**
+     * 根据ImageView获得适当的压缩的宽和高
+     */
+    private ImageSize getImageViewWidth(ImageView imageView) {
+        ImageSize imageSize = new ImageSize();
+        DisplayMetrics displayMetrics = imageView.getContext().getResources().getDisplayMetrics();
+
+        LayoutParams lp = imageView.getLayoutParams();
+
+        int width = imageView.getWidth();// 获取imageview的实际宽度
+        if (width <= 0) {
+            width = lp.width;// 获取imageview在layout中声明的宽度
+        }
+        if (width <= 0) {
+            //width = imageView.getMaxWidth();// 检查最大值
+            width = getImageViewFieldValue(imageView, "mMaxWidth");
+        }
+        if (width <= 0) {
+            width = displayMetrics.widthPixels;
+        }
+
+        int height = imageView.getHeight();// 获取imageview的实际高度
+        if (height <= 0) {
+            height = lp.height;// 获取imageview在layout中声明的宽度
+        }
+        if (height <= 0) {
+            height = getImageViewFieldValue(imageView, "mMaxHeight");// 检查最大值
+        }
+        if (height <= 0) {
+            height = displayMetrics.heightPixels;
+        }
+        imageSize.width = width;
+        imageSize.height = height;
+
+        return imageSize;
+    }
+
+
+    /**
+     * 反射获得ImageView设置的最大宽度和高度
+     */
+    private static int getImageViewFieldValue(Object object, String fieldName) {
+        int value = 0;
+        try {
+            Field field = ImageView.class.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            int fieldValue = (Integer) field.get(object);
+            if (fieldValue > 0 && fieldValue < Integer.MAX_VALUE) {
+                value = fieldValue;
+            }
+        } catch (Exception e) {
+        }
+        return value;
+    }
+
+
+    /**
+     * 根据计算的inSampleSize，得到压缩后图片
+     */
+    private Bitmap decodeSampledBitmapFromResource(String pathName, int reqWidth, int reqHeight)
+            throws IOException {
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inJustDecodeBounds = true;
+        options.inPreferredConfig = Bitmap.Config.RGB_565;
+        BitmapFactory.decodeFile(pathName, options);
+
+        options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight);
+        options.inJustDecodeBounds = false;
+
+        //Bitmap bitmap = BitmapFactory.decodeFile(pathName, options);
+        Bitmap bitmap = BitmapFactory.decodeStream(new FileInputStream(pathName), null, options);
+
+        return bitmap;
+    }
+
+
+    private class ImgBeanHolder {
         Bitmap bitmap;
-        ImageView imageView;
+        WeakReference<ProgressBar> progressBar;
+        WeakReference<ImageView> imageView;
         String path;
+        boolean isBigImg = false;
+    }
+
+    private class ImageSize {
+        int width;
+        int height;
+    }
+
+    /**
+     * 处理得到的图像
+     */
+    private static class MyHandler extends Handler {
+        @Override public void handleMessage(Message msg) {
+            ImgBeanHolder holder = (ImgBeanHolder) msg.obj;
+            if (holder.imageView == null) {
+                return;
+            }
+
+            ImageView imageView = holder.imageView.get();
+            if (imageView == null) {
+                return;
+            }
+
+            Bitmap bm = holder.bitmap;
+            String path = holder.path;
+            if (imageView.getTag().toString().equals(path)) {
+                if (bm == null) {
+                }
+                else {
+                    imageView.setImageBitmap(bm);
+                    imageView.setBackgroundResource(android.R.color.transparent);
+                }
+            }
+            else {
+            }
+
+            if (holder.isBigImg) {
+                if (holder.progressBar == null) return;
+                ProgressBar progressBar = holder.progressBar.get();
+                if (progressBar == null) return;
+
+                if (progressBar.getTag().toString().equals(path)) {
+                    progressBar.setVisibility(View.GONE);
+                }
+            }
+        }
+    }
+
+    private static class MyPoolThreadHandler extends Handler {
+
+        WeakReference<ImageLoader> weakReference;
+
+
+        public MyPoolThreadHandler(ImageLoader imageLoader) {
+            weakReference = new WeakReference<ImageLoader>(imageLoader);
+        }
+
+
+        @Override public void handleMessage(Message msg) {
+            if (msg == null) return;
+            if (weakReference.get() == null) return;
+
+            switch (msg.what) {
+                case GET_IMAGE:
+                    weakReference.get().mThreadPool.execute(weakReference.get().getTask());
+                    try {
+                        weakReference.get().mPoolSemaphore.acquire();
+                    } catch (InterruptedException e) {
+                    }
+                    break;
+                case EXIT:
+                    weakReference.get().mLooper.quit();
+                    weakReference.get().clearCache();
+                    if (weakReference.get() != null) {
+                        weakReference.get().mPoolThread.interrupt();
+                        weakReference.get().mPoolThread = null;
+                        if (weakReference.get().mPoolThreadHander != null) {
+                            weakReference.get().mPoolThreadHander.removeCallbacksAndMessages(null);
+                        }
+                        if (weakReference.get().mThreadPool != null) {
+                            weakReference.get().mThreadPool.shutdown();
+                        }
+                        if (weakReference.get().mHandler != null) {
+                            weakReference.get().mHandler.removeCallbacksAndMessages(null);
+                        }
+                        if (weakReference.get().mTasks != null) weakReference.get().mTasks.clear();
+                    }
+                    mInstance = null;
+                    break;
+            }
+        }
+
+
+        ;
     }
 }

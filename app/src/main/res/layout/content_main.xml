@@ -16,20 +16,20 @@
         android:horizontalSpacing="3dip"
         android:numColumns="4"
         android:scrollbars="none"
-        android:verticalSpacing="3dip" />
+        android:verticalSpacing="3dip"/>
 
-    <com.guo.duoduo.fastscrollbarapp.view.FastScrollLayout
+    <RelativeLayout
         android:id="@+id/fast_layout"
         android:layout_width="wrap_content"
-        android:layout_height="match_parent"
+        android:layout_height="@dimen/y60"
         android:layout_alignParentRight="true">
 
         <TextView
             android:id="@+id/drag_view"
             android:layout_width="100dp"
-            android:layout_height="70dp"
+            android:layout_height="match_parent"
             android:background="#44ff0000"
             android:gravity="center"
-            android:text="I can be dragged !" />
-    </com.guo.duoduo.fastscrollbarapp.view.FastScrollLayout>
+            android:text="I can be dragged !"/>
+    </RelativeLayout>
 </RelativeLayout>
